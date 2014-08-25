@@ -1,5 +1,9 @@
 # OmniAuth LDAP
 
+== Modyo
+
+Support for multiple chained repositories.
+
 == LDAP
 
 Use the LDAP strategy as a middleware in your application:
