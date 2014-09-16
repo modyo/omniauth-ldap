@@ -17,7 +17,9 @@ module OmniAuth
       class ConnectionError < StandardError;
       end
 
-      VALID_ADAPTER_CONFIGURATION_KEYS = [:host, :port, :method, :bind_dn, :password, :try_sasl, :sasl_mechanisms, :uid, :base, :allow_anonymous, :filter]
+      VALID_ADAPTER_CONFIGURATION_KEYS = [:host, :port, :method, :bind_dn, :password, :try_sasl, :sasl_mechanisms, :uid, :base, :allow_anonymous, :filter,
+                                          :ldap2_host, :ldap2_port, :ldap2_method, :ldap2_bind_dn, :ldap2_password, :ldap2_try_sasl, :ldap2_sasl_mechanisms, :ldap2_uid, :ldap2_base, :ldap2_allow_anonymous, :ldap2_filter,
+                                          :ldap3_host, :ldap3_port, :ldap3_method, :ldap3_bind_dn, :ldap3_password, :ldap3_try_sasl, :ldap3_sasl_mechanisms, :ldap3_uid, :ldap3_base, :ldap3_allow_anonymous, :ldap3_filter]
 
       # A list of needed keys. Possible alternatives are specified using sub-lists.
       MUST_HAVE_KEYS = [:host, :port, :method, [:uid, :filter], :base]
@@ -29,7 +31,11 @@ module OmniAuth
       }
 
       attr_accessor :bind_dn, :password
+      attr_accessor :ldap2_bind_dn, :ldap2_password
+      attr_accessor :ldap3_bind_dn, :ldap3_password
       attr_reader :connection, :uid, :base, :auth, :filter
+      attr_reader :ldap2_connection, :ldap2_uid, :ldap2_base, :ldap2_auth, :ldap2_filter
+      attr_reader :ldap3_connection, :ldap3_uid, :ldap3_base, :ldap3_auth, :ldap3_filter
 
       def self.validate(configuration={})
         message = []
@@ -74,10 +80,10 @@ module OmniAuth
         # Connection N°2
         ldap2_method = ensure_method(@ldap2_method)
         ldap2_config = {
-            :ldap2_host => @ldap2_host,
-            :ldap2_port => @ldap2_port,
-            :ldap2_encryption => ldap2_method,
-            :ldap2_base => @ldap2_base
+            :host => @ldap2_host,
+            :port => @ldap2_port,
+            :encryption => ldap2_method,
+            :base => @ldap2_base
         }
         @ldap2_bind_method = @ldap2_try_sasl ? :sasl : (@ldap2_allow_anonymous||!@ldap2_bind_dn||!@ldap2_password ? :anonymous : :simple)
 
@@ -91,6 +97,7 @@ module OmniAuth
         @ldap2_connection = Net::LDAP.new(ldap2_config)
 
         # Connection N°3
+        ldap3_method = ensure_method(@ldap3_method)
         ldap3_config = {
             :host => @ldap3_host,
             :port => @ldap3_port,
@@ -115,12 +122,18 @@ module OmniAuth
       # :filter => "(mail=#{user})",
       # :password => psw
       def bind_as(args = {})
+
+        args1 = args.dup
+        args2 = args.dup
+        args3 = args.dup
+
         result = false
         @connection.open do |me|
-          rs = me.search args
+
+          rs = me.search args1
           if rs and rs.first and dn = rs.first.dn
-            password = args[:password]
-            method = args[:method] || @method
+            password = args1[:password]
+            method = args1[:method] || @method
             password = password.call if password.respond_to?(:call)
             if method == 'sasl'
               result = rs.first if me.bind(sasl_auths({:username => dn, :password => password}).first)
@@ -128,12 +141,16 @@ module OmniAuth
               result = rs.first if me.bind(:method => :simple, :username => dn,
                                            :password => password)
             end
-          else
+
+            return result if result
+
+          elsif @ldap2_host.present?
             @ldap2_connection.open do |me|
-              rs = me.search args
+
+              rs = me.search args2
               if rs and rs.first and dn = rs.first.dn
-                password = args[:password]
-                method = args[:method] || @ldap2_method
+                password = args2[:password]
+                method = args2[:method] || @ldap2_method
                 password = password.call if password.respond_to?(:call)
                 if method == 'sasl'
                   result = rs.first if me.bind(sasl_auths({:username => dn, :password => password}).first)
@@ -141,12 +158,16 @@ module OmniAuth
                   result = rs.first if me.bind(:method => :simple, :username => dn,
                                                :password => password)
                 end
-              else
+
+                return result if result
+
+              elsif @ldap3_host.present?
                 @ldap3_connection.open do |me|
-                  rs = me.search args
+
+                  rs = me.search args3
                   if rs and rs.first and dn = rs.first.dn
-                    password = args[:password]
-                    method = args[:method] || @ldap3_method
+                    password = args3[:password]
+                    method = args3[:method] || @ldap3_method
                     password = password.call if password.respond_to?(:call)
                     if method == 'sasl'
                       result = rs.first if me.bind(sasl_auths({:username => dn, :password => password}).first)
@@ -155,12 +176,14 @@ module OmniAuth
                                                    :password => password)
                     end
                   end
+
+                  return result if result
                 end
               end
             end
           end
         end
-        result
+
       end
 
       private
